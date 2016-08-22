@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using Microsoft.AspNetCore.Razor.Compilation.TagHelpers;
 using Microsoft.AspNetCore.Razor.Runtime.TagHelpers;
 
@@ -13,6 +14,7 @@ namespace Microsoft.AspNetCore.Razor.Design.Internal
     {
         private readonly TagHelperDescriptorFactory _descriptorFactory = new TagHelperDescriptorFactory(designTime: true);
         private readonly TagHelperTypeResolver _tagHelperTypeResolver;
+        private AssemblyDescriptorFactoryResolver _assemblyResolver = new AssemblyDescriptorFactoryResolver();
 
         public AssemblyTagHelperDescriptorResolver()
             : this(new TagHelperTypeResolver())
@@ -45,6 +47,10 @@ namespace Microsoft.AspNetCore.Razor.Design.Internal
                     tagHelperDescriptors.AddRange(descriptors);
                 }
 
+                // Append view component descriptors.
+                var viewComponentTagHelperDescriptors = GetViewComponentTagHelpers(assemblyName);
+                tagHelperDescriptors.AddRange(viewComponentTagHelperDescriptors);
+
                 return tagHelperDescriptors;
             }
             else
@@ -65,5 +71,27 @@ namespace Microsoft.AspNetCore.Razor.Design.Internal
         {
             return _tagHelperTypeResolver.Resolve(assemblyName, SourceLocation.Zero, errorSink);
         }
+
+        private IEnumerable<TagHelperDescriptor> GetViewComponentTagHelpers(string assemblyName)
+        {
+            // Our first time checking the assembly!
+            if (!_assemblyResolver.LoadedAssembly)
+            {
+                _assemblyResolver.LoadAssembly();
+            }
+
+            if (_assemblyResolver.HasAssembly)
+            {
+                var descriptorProvider = _assemblyResolver.CreateDescriptorProviderMethod.Invoke(null, new object[1] { assemblyName });
+                var classInstance = Activator.CreateInstance(_assemblyResolver.DescriptorFactoryClass, new object[1] { descriptorProvider });
+                var descriptorsObject = _assemblyResolver.CreateDescriptorsMethod.Invoke(classInstance, new object[0]);
+                var descriptors = descriptorsObject as IEnumerable<TagHelperDescriptor>;
+                return descriptors;
+            }
+
+            // No assembly.
+            return Enumerable.Empty<TagHelperDescriptor>();
+        }
+
     }
 }
